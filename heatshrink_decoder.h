@@ -7,22 +7,22 @@
 #include "heatshrink_config.h"
 
 typedef enum {
-    HSDR_SINK_OK,               /* data sunk, ready to poll */
-    HSDR_SINK_FULL,             /* out of space in internal buffer */
-    HSDR_SINK_ERROR_NULL=-1,    /* NULL argument */
+    HSDR_SINK_OK,               /* 数据已送入，可进行 poll */
+    HSDR_SINK_FULL,             /* 内部缓冲区空间不足 */
+    HSDR_SINK_ERROR_NULL=-1,    /* NULL 参数 */
 } HSD_sink_res;
 
 typedef enum {
-    HSDR_POLL_EMPTY,            /* input exhausted */
-    HSDR_POLL_MORE,             /* more data remaining, call again w/ fresh output buffer */
-    HSDR_POLL_ERROR_NULL=-1,    /* NULL arguments */
+    HSDR_POLL_EMPTY,            /* 输入已耗尽 */
+    HSDR_POLL_MORE,             /* 仍有数据未处理，用新的输出缓冲区再次调用 */
+    HSDR_POLL_ERROR_NULL=-1,    /* NULL 参数 */
     HSDR_POLL_ERROR_UNKNOWN=-2,
 } HSD_poll_res;
 
 typedef enum {
-    HSDR_FINISH_DONE,           /* output is done */
-    HSDR_FINISH_MORE,           /* more output remains */
-    HSDR_FINISH_ERROR_NULL=-1,  /* NULL arguments */
+    HSDR_FINISH_DONE,           /* 输出已完成 */
+    HSDR_FINISH_MORE,           /* 仍有输出未取出 */
+    HSDR_FINISH_ERROR_NULL=-1,  /* NULL 参数 */
 } HSD_finish_res;
 
 #if HEATSHRINK_DYNAMIC_ALLOC
@@ -42,59 +42,58 @@ typedef enum {
 #endif
 
 typedef struct {
-    uint16_t input_size;        /* bytes in input buffer */
-    uint16_t input_index;       /* offset to next unprocessed input byte */
-    uint16_t output_count;      /* how many bytes to output */
-    uint16_t output_index;      /* index for bytes to output */
-    uint16_t head_index;        /* head of window buffer */
-    uint8_t state;              /* current state machine node */
-    uint8_t current_byte;       /* current byte of input */
-    uint8_t bit_index;          /* current bit index */
+    uint16_t input_size;        /* 输入缓冲区中的字节数 */
+    uint16_t input_index;       /* 下一个待处理输入字节的偏移 */
+    uint16_t output_count;      /* 还需输出的字节数 */
+    uint16_t output_index;      /* 待输出字节的索引 */
+    uint16_t head_index;        /* 窗口缓冲区的头部 */
+    uint8_t state;              /* 当前状态机状态 */
+    uint8_t current_byte;       /* 当前输入字节 */
+    uint8_t bit_index;          /* 当前比特位置 */
 
 #if HEATSHRINK_DYNAMIC_ALLOC
-    /* Fields that are only used if dynamically allocated. */
-    uint8_t window_sz2;         /* window buffer bits */
-    uint8_t lookahead_sz2;      /* lookahead bits */
-    uint16_t input_buffer_size; /* input buffer size */
+    /* 仅在动态分配时使用的字段。 */
+    uint8_t window_sz2;         /* 窗口缓冲区位数 */
+    uint8_t lookahead_sz2;      /* 前向匹配位数 */
+    uint16_t input_buffer_size; /* 输入缓冲区大小 */
 
-    /* Input buffer, then expansion window buffer */
+    /* 先是输入缓冲区，然后是扩展窗口缓冲区 */
     uint8_t buffers[];
 #else
-    /* Input buffer, then expansion window buffer */
+    /* 先是输入缓冲区，然后是扩展窗口缓冲区 */
     uint8_t buffers[(1 << HEATSHRINK_DECODER_WINDOW_BITS(_))
         + HEATSHRINK_DECODER_INPUT_BUFFER_SIZE(_)];
 #endif
 } heatshrink_decoder;
 
 #if HEATSHRINK_DYNAMIC_ALLOC
-/* Allocate a decoder with an input buffer of INPUT_BUFFER_SIZE bytes,
- * an expansion buffer size of 2^WINDOW_SZ2, and a lookahead
- * size of 2^lookahead_sz2. (The window buffer and lookahead sizes
- * must match the settings used when the data was compressed.)
- * Returns NULL on error. */
+/* 分配一个 decoder：输入缓冲区为 INPUT_BUFFER_SIZE 字节，
+ * 扩展缓冲区为 2^WINDOW_SZ2，前向匹配大小为 2^lookahead_sz2。
+ * （窗口缓冲区和前向匹配大小必须与压缩数据时使用的设置一致。）
+ * 出错返回 NULL。 */
 heatshrink_decoder *heatshrink_decoder_alloc(uint16_t input_buffer_size,
     uint8_t expansion_buffer_sz2, uint8_t lookahead_sz2);
 
-/* Free a decoder. */
+/* 释放 decoder。 */
 void heatshrink_decoder_free(heatshrink_decoder *hsd);
 #endif
 
-/* Reset a decoder. */
+/* 重置 decoder。 */
 void heatshrink_decoder_reset(heatshrink_decoder *hsd);
 
-/* Sink at most SIZE bytes from IN_BUF into the decoder. *INPUT_SIZE is set to
- * indicate how many bytes were actually sunk (in case a buffer was filled). */
+/* 将 IN_BUF 中最多 SIZE 字节送入 decoder。
+ * *INPUT_SIZE 会设置为实际送入的字节数（缓冲区可能已满）。 */
 HSD_sink_res heatshrink_decoder_sink(heatshrink_decoder *hsd,
     uint8_t *in_buf, size_t size, size_t *input_size);
 
-/* Poll for output from the decoder, copying at most OUT_BUF_SIZE bytes into
- * OUT_BUF (setting *OUTPUT_SIZE to the actual amount copied). */
+/* 从 decoder 轮询输出，最多把 OUT_BUF_SIZE 字节拷入 OUT_BUF
+ * （*OUTPUT_SIZE 设为实际拷贝的字节数）。 */
 HSD_poll_res heatshrink_decoder_poll(heatshrink_decoder *hsd,
     uint8_t *out_buf, size_t out_buf_size, size_t *output_size);
 
-/* Notify the dencoder that the input stream is finished.
- * If the return value is HSDR_FINISH_MORE, there is still more output, so
- * call heatshrink_decoder_poll and repeat. */
+/* 通知 decoder 输入流已结束。
+ * 若返回 HSDR_FINISH_MORE，说明还有输出未取出，需反复调用
+ * heatshrink_decoder_poll。 */
 HSD_finish_res heatshrink_decoder_finish(heatshrink_decoder *hsd);
 
 #endif

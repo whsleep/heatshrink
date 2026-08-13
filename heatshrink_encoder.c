@@ -4,16 +4,16 @@
 #include "heatshrink_encoder.h"
 
 typedef enum {
-    HSES_NOT_FULL,              /* input buffer not full enough */
-    HSES_FILLED,                /* buffer is full */
-    HSES_SEARCH,                /* searching for patterns */
-    HSES_YIELD_TAG_BIT,         /* yield tag bit */
-    HSES_YIELD_LITERAL,         /* emit literal byte */
-    HSES_YIELD_BR_INDEX,        /* yielding backref index */
-    HSES_YIELD_BR_LENGTH,       /* yielding backref length */
-    HSES_SAVE_BACKLOG,          /* copying buffer to backlog */
-    HSES_FLUSH_BITS,            /* flush bit buffer */
-    HSES_DONE,                  /* done */
+    HSES_NOT_FULL,              /* 输入缓冲区尚未填满 */
+    HSES_FILLED,                /* 缓冲区已满 */
+    HSES_SEARCH,                /* 正在查找匹配模式 */
+    HSES_YIELD_TAG_BIT,         /* 输出标记位 */
+    HSES_YIELD_LITERAL,         /* 输出字面量字节 */
+    HSES_YIELD_BR_INDEX,        /* 输出反向引用索引 */
+    HSES_YIELD_BR_LENGTH,       /* 输出反向引用长度 */
+    HSES_SAVE_BACKLOG,          /* 把缓冲区拷贝到 backlog */
+    HSES_FLUSH_BITS,            /* 冲刷比特缓冲区 */
+    HSES_DONE,                  /* 完成 */
 } HSE_state;
 
 #if HEATSHRINK_DEBUGGING_LOGS
@@ -39,15 +39,15 @@ static const char *state_names[] = {
 #define ASSERT(X) /* no-op */
 #endif
 
-// Encoder flags
+// 编码器标志位
 enum {
     FLAG_IS_FINISHING = 0x01,
 };
 
 typedef struct {
-    uint8_t *buf;               /* output buffer */
-    size_t buf_size;            /* buffer size */
-    size_t *output_size;        /* bytes pushed to buffer, so far */
+    uint8_t *buf;               /* 输出缓冲区 */
+    size_t buf_size;            /* 缓冲区大小 */
+    size_t *output_size;        /* 到目前为止已写入缓冲区的字节数 */
 } output_info;
 
 #define MATCH_NOT_FOUND ((uint16_t)-1)
@@ -60,7 +60,7 @@ static int can_take_byte(output_info *oi);
 static int is_finishing(heatshrink_encoder *hse);
 static void save_backlog(heatshrink_encoder *hse);
 
-/* Push COUNT (max 8) bits to the output buffer, which has room. */
+/* 把 COUNT（最多 8）个比特写入还有空间的输出缓冲区。 */
 static void push_bits(heatshrink_encoder *hse, uint8_t count, uint8_t bits,
     output_info *oi);
 static uint8_t push_outgoing_bits(heatshrink_encoder *hse, output_info *oi);
@@ -75,11 +75,11 @@ heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
         (lookahead_sz2 >= window_sz2)) {
         return NULL;
     }
-    
-    /* Note: 2 * the window size is used because the buffer needs to fit
-     * (1 << window_sz2) bytes for the current input, and an additional
-     * (1 << window_sz2) bytes for the previous buffer of input, which
-     * will be scanned for useful backreferences. */
+
+    /* 注意：缓冲区大小取 2 倍窗口大小，因为缓冲区需要容纳
+     * (1 << window_sz2) 字节的当前输入，以及额外
+     * (1 << window_sz2) 字节的上一份输入（用于扫描查找
+     * 有用的反向引用）。 */
     size_t buf_sz = (2 << window_sz2);
 
     heatshrink_encoder *hse = HEATSHRINK_MALLOC(sizeof(*hse) + buf_sz);
@@ -140,10 +140,10 @@ HSE_sink_res heatshrink_encoder_sink(heatshrink_encoder *hse,
         return HSER_SINK_ERROR_NULL;
     }
 
-    /* Sinking more content after saying the content is done, tsk tsk */
+    /* 在已声明内容结束后又继续送入内容，这是误用 */
     if (is_finishing(hse)) { return HSER_SINK_ERROR_MISUSE; }
 
-    /* Sinking more content before processing is done */
+    /* 在处理完成之前又继续送入内容 */
     if (hse->state != HSES_NOT_FULL) { return HSER_SINK_ERROR_MISUSE; }
 
     uint16_t write_offset = get_input_offset(hse) + hse->input_size;
@@ -167,7 +167,7 @@ HSE_sink_res heatshrink_encoder_sink(heatshrink_encoder *hse,
 
 
 /***************
- * Compression *
+ * 压缩        *
  ***************/
 
 static uint16_t find_longest_match(heatshrink_encoder *hse, uint16_t start,
@@ -243,7 +243,7 @@ HSE_poll_res heatshrink_encoder_poll(heatshrink_encoder *hse,
         }
 
         if (hse->state == in_state) {
-            /* Check if output buffer is exhausted. */
+            /* 检查输出缓冲区是否已满。 */
             if (*output_size == out_buf_size) return HSER_POLL_MORE;
         }
     }
@@ -266,8 +266,7 @@ static HSE_state st_step_search(heatshrink_encoder *hse) {
 
     bool fin = is_finishing(hse);
     if (msi > hse->input_size - (fin ? 1 : lookahead_sz)) {
-        /* Current search buffer is exhausted, copy it into the
-         * backlog and await more input. */
+        /* 当前搜索缓冲区已耗尽，把它拷入 backlog 并等待更多输入。 */
         LOG("-- end of search @ %d\n", msi);
         return fin ? HSES_FLUSH_BITS : HSES_SAVE_BACKLOG;
     }
@@ -280,11 +279,11 @@ static HSE_state st_step_search(heatshrink_encoder *hse) {
     if (hse->input_size - msi < lookahead_sz) {
         max_possible = hse->input_size - msi;
     }
-    
+
     uint16_t match_length = 0;
     uint16_t match_pos = find_longest_match(hse,
         start, end, max_possible, &match_length);
-    
+
     if (match_pos == MATCH_NOT_FOUND) {
         LOG("ss Match not found\n");
         hse->match_scan_index++;
@@ -313,7 +312,7 @@ static HSE_state st_yield_tag_bit(heatshrink_encoder *hse,
             return HSES_YIELD_BR_INDEX;
         }
     } else {
-        return HSES_YIELD_TAG_BIT; /* output is full, continue */
+        return HSES_YIELD_TAG_BIT; /* 输出已满，继续 */
     }
 }
 
@@ -332,14 +331,14 @@ static HSE_state st_yield_br_index(heatshrink_encoder *hse,
     if (can_take_byte(oi)) {
         LOG("-- yielding backref index %u\n", hse->match_pos);
         if (push_outgoing_bits(hse, oi) > 0) {
-            return HSES_YIELD_BR_INDEX; /* continue */
+            return HSES_YIELD_BR_INDEX; /* 继续 */
         } else {
             hse->outgoing_bits = hse->match_length - 1;
             hse->outgoing_bits_count = HEATSHRINK_ENCODER_LOOKAHEAD_BITS(hse);
-            return HSES_YIELD_BR_LENGTH; /* done */
+            return HSES_YIELD_BR_LENGTH; /* 完成 */
         }
     } else {
-        return HSES_YIELD_BR_INDEX; /* continue */
+        return HSES_YIELD_BR_INDEX; /* 继续 */
     }
 }
 
@@ -401,22 +400,20 @@ static uint16_t get_lookahead_size(heatshrink_encoder *hse) {
 
 static void do_indexing(heatshrink_encoder *hse) {
 #if HEATSHRINK_USE_INDEX
-    /* Build an index array I that contains flattened linked lists
-     * for the previous instances of every byte in the buffer.
-     * 
-     * For example, if buf[200] == 'x', then index[200] will either
-     * be an offset i such that buf[i] == 'x', or a negative offset
-     * to indicate end-of-list. This significantly speeds up matching,
-     * while only using sizeof(uint16_t)*sizeof(buffer) bytes of RAM.
+    /* 构建索引数组 index，为缓冲区中每个字节的“上一次出现”维护
+     * 扁平化的链表。
      *
-     * Future optimization options:
-     * 1. Since any negative value represents end-of-list, the other
-     *    15 bits could be used to improve the index dynamically.
-     *    
-     * 2. Likewise, the last lookahead_sz bytes of the index will
-     *    not be usable, so temporary data could be stored there to
-     *    dynamically improve the index.
-     * */
+     * 例如，若 buf[200] == 'x'，则 index[200] 要么是一个满足
+     * buf[i] == 'x' 的偏移 i，要么是一个负值（表示链表结束）。
+     * 这能显著加快匹配速度，代价只是
+     * sizeof(uint16_t) * sizeof(buffer) 字节的 RAM。
+     *
+     * 后续可优化方向：
+     * 1. 既然任何负值都表示链表结束，其余 15 个比特
+     *    可以用来动态改善索引。
+     * 2. 同理，索引最后 lookahead_sz 个字节不会被使用，
+     *    也可以在那里存放临时数据以动态改善索引。
+     */
     struct hs_index *hsi = HEATSHRINK_ENCODER_INDEX(hse);
     int16_t last[256];
     memset(last, 0xFF, sizeof(last));
@@ -446,8 +443,8 @@ static int can_take_byte(output_info *oi) {
     return *oi->output_size < oi->buf_size;
 }
 
-/* Return the longest match for the bytes at buf[end:end+maxlen] between
- * buf[start] and buf[end-1]. If no match is found, return -1. */
+/* 在 buf[start] 到 buf[end-1] 之间，为 buf[end:end+maxlen] 处的字节
+ * 查找最长匹配。未找到则返回 -1。 */
 static uint16_t find_longest_match(heatshrink_encoder *hse, uint16_t start,
         uint16_t end, const uint16_t maxlen, uint16_t *match_length) {
     LOG("-- scanning for match of buf[%u:%u] between buf[%u:%u] (max %u bytes)\n",
@@ -467,9 +464,9 @@ static uint16_t find_longest_match(heatshrink_encoder *hse, uint16_t start,
         uint8_t * const pospoint = &buf[pos];
         len = 0;
 
-        /* Only check matches that will potentially beat the current maxlen.
-         * This is redundant with the index if match_maxlen is 0, but the
-         * added branch overhead to check if it == 0 seems to be worse. */
+        /* 只检查那些可能超过当前最大长度的匹配。
+         * 在 match_maxlen 为 0 时这与索引是冗余的，但检查
+         * 它是否 == 0 所增加的额外分支开销似乎更糟。 */
         if (pospoint[match_maxlen] != needlepoint[match_maxlen]) {
             pos = hsi->index[pos];
             continue;
@@ -482,11 +479,11 @@ static uint16_t find_longest_match(heatshrink_encoder *hse, uint16_t start,
         if (len > match_maxlen) {
             match_maxlen = len;
             match_index = pos;
-            if (len == maxlen) { break; } /* won't find better */
+            if (len == maxlen) { break; } /* 不可能找到更优的了 */
         }
         pos = hsi->index[pos];
     }
-#else    
+#else
     for (int16_t pos=end - 1; pos - (int16_t)start >= 0; pos--) {
         uint8_t * const pospoint = &buf[pos];
         if ((pospoint[match_maxlen] == needlepoint[match_maxlen])
@@ -501,20 +498,20 @@ static uint16_t find_longest_match(heatshrink_encoder *hse, uint16_t start,
             if (len > match_maxlen) {
                 match_maxlen = len;
                 match_index = pos;
-                if (len == maxlen) { break; } /* don't keep searching */
+                if (len == maxlen) { break; } /* 不再继续查找 */
             }
         }
     }
 #endif
-    
+
     const size_t break_even_point =
       (1 + HEATSHRINK_ENCODER_WINDOW_BITS(hse) +
           HEATSHRINK_ENCODER_LOOKAHEAD_BITS(hse));
 
-    /* Instead of comparing break_even_point against 8*match_maxlen,
-     * compare match_maxlen against break_even_point/8 to avoid
-     * overflow. Since MIN_WINDOW_BITS and MIN_LOOKAHEAD_BITS are 4 and
-     * 3, respectively, break_even_point/8 will always be at least 1. */
+    /* 不是拿 break_even_point 与 8*match_maxlen 比较，而是拿
+     * match_maxlen 与 break_even_point/8 比较，以避免溢出。
+     * 由于 MIN_WINDOW_BITS 和 MIN_LOOKAHEAD_BITS 分别为 4 和 3，
+     * break_even_point/8 始终至少为 1。 */
     if (match_maxlen > (break_even_point / 8)) {
         LOG("-- best match: %u bytes at -%u\n",
             match_maxlen, end - match_index);
@@ -544,15 +541,15 @@ static uint8_t push_outgoing_bits(heatshrink_encoder *hse, output_info *oi) {
     return count;
 }
 
-/* Push COUNT (max 8) bits to the output buffer, which has room.
- * Bytes are set from the lowest bits, up. */
+/* 把 COUNT（最多 8）个比特写入还有空间的输出缓冲区。
+ * 字节从最低位开始填充。 */
 static void push_bits(heatshrink_encoder *hse, uint8_t count, uint8_t bits,
         output_info *oi) {
     ASSERT(count <= 8);
     LOG("++ push_bits: %d bits, input of 0x%02x\n", count, bits);
 
-    /* If adding a whole byte and at the start of a new output byte,
-     * just push it through whole and skip the bit IO loop. */
+    /* 如果要写入的是完整一个字节且正处于新输出字节的起始处，
+     * 就直接整字节写入，跳过逐比特处理循环。 */
     if (count == 8 && hse->bit_index == 0x80) {
         oi->buf[(*oi->output_size)++] = bits;
     } else {
@@ -585,20 +582,19 @@ static void push_literal_byte(heatshrink_encoder *hse, output_info *oi) {
 
 static void save_backlog(heatshrink_encoder *hse) {
     size_t input_buf_sz = get_input_buffer_size(hse);
-    
+
     uint16_t msi = hse->match_scan_index;
-    
-    /* Copy processed data to beginning of buffer, so it can be
-     * used for future matches. Don't bother checking whether the
-     * input is less than the maximum size, because if it isn't,
-     * we're done anyway. */
-    uint16_t rem = input_buf_sz - msi; // unprocessed bytes
+
+    /* 把已处理的数据拷贝到缓冲区开头，以便用于后续匹配。
+     * 无需检查输入是否小于最大尺寸，因为如果不是，那反正
+     * 也快结束了。 */
+    uint16_t rem = input_buf_sz - msi; // 未处理的字节数
     uint16_t shift_sz = input_buf_sz + rem;
 
     memmove(&hse->buffer[0],
         &hse->buffer[input_buf_sz - rem],
         shift_sz);
-        
+
     hse->match_scan_index = 0;
     hse->input_size -= input_buf_sz - rem;
 }

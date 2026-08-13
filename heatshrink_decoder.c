@@ -2,15 +2,15 @@
 #include <string.h>
 #include "heatshrink_decoder.h"
 
-/* States for the polling state machine. */
+/* 轮询状态机的状态。 */
 typedef enum {
-    HSDS_TAG_BIT,               /* tag bit */
-    HSDS_YIELD_LITERAL,         /* ready to yield literal byte */
-    HSDS_BACKREF_INDEX_MSB,     /* most significant byte of index */
-    HSDS_BACKREF_INDEX_LSB,     /* least significant byte of index */
-    HSDS_BACKREF_COUNT_MSB,     /* most significant byte of count */
-    HSDS_BACKREF_COUNT_LSB,     /* least significant byte of count */
-    HSDS_YIELD_BACKREF,         /* ready to yield back-reference */
+    HSDS_TAG_BIT,               /* 标记位 */
+    HSDS_YIELD_LITERAL,         /* 准备输出字面量字节 */
+    HSDS_BACKREF_INDEX_MSB,     /* 索引的高字节 */
+    HSDS_BACKREF_INDEX_LSB,     /* 索引的低字节 */
+    HSDS_BACKREF_COUNT_MSB,     /* 计数的高字节 */
+    HSDS_BACKREF_COUNT_LSB,     /* 计数的低字节 */
+    HSDS_YIELD_BACKREF,         /* 准备输出反向引用 */
 } HSD_state;
 
 #if HEATSHRINK_DEBUGGING_LOGS
@@ -34,14 +34,14 @@ static const char *state_names[] = {
 #endif
 
 typedef struct {
-    uint8_t *buf;               /* output buffer */
-    size_t buf_size;            /* buffer size */
-    size_t *output_size;        /* bytes pushed to buffer, so far */
+    uint8_t *buf;               /* 输出缓冲区 */
+    size_t buf_size;            /* 缓冲区大小 */
+    size_t *output_size;        /* 到目前为止已写入缓冲区的字节数 */
 } output_info;
 
 #define NO_BITS ((uint16_t)-1)
 
-/* Forward references. */
+/* 前置声明。 */
 static uint16_t get_bits(heatshrink_decoder *hsd, uint8_t count);
 static void push_byte(heatshrink_decoder *hsd, output_info *oi, uint8_t byte);
 
@@ -73,7 +73,7 @@ void heatshrink_decoder_free(heatshrink_decoder *hsd) {
     size_t buffers_sz = (1 << hsd->window_sz2) + hsd->input_buffer_size;
     size_t sz = sizeof(heatshrink_decoder) + buffers_sz;
     HEATSHRINK_FREE(hsd, sz);
-    (void)sz;   /* may not be used by free */
+    (void)sz;   /* free 可能用不到该值 */
 }
 #endif
 
@@ -91,7 +91,7 @@ void heatshrink_decoder_reset(heatshrink_decoder *hsd) {
     hsd->head_index = 0;
 }
 
-/* Copy SIZE bytes into the decoder's input buffer, if it will fit. */
+/* 把 SIZE 字节拷入 decoder 的输入缓冲区（如果放得下的话）。 */
 HSD_sink_res heatshrink_decoder_sink(heatshrink_decoder *hsd,
         uint8_t *in_buf, size_t size, size_t *input_size) {
     if ((hsd == NULL) || (in_buf == NULL) || (input_size == NULL)) {
@@ -106,7 +106,7 @@ HSD_sink_res heatshrink_decoder_sink(heatshrink_decoder *hsd,
 
     size = rem < size ? rem : size;
     LOG("-- sinking %zd bytes\n", size);
-    /* copy into input buffer (at head of buffers) */
+    /* 拷入输入缓冲区（位于 buffers 头部） */
     memcpy(&hsd->buffers[hsd->input_size], in_buf, size);
     hsd->input_size += size;
     *input_size = size;
@@ -115,13 +115,13 @@ HSD_sink_res heatshrink_decoder_sink(heatshrink_decoder *hsd,
 
 
 /*****************
- * Decompression *
+ * 解压          *
  *****************/
 
 #define BACKREF_COUNT_BITS(HSD) (HEATSHRINK_DECODER_LOOKAHEAD_BITS(HSD))
 #define BACKREF_INDEX_BITS(HSD) (HEATSHRINK_DECODER_WINDOW_BITS(HSD))
 
-// States
+// 状态
 static HSD_state st_tag_bit(heatshrink_decoder *hsd);
 static HSD_state st_yield_literal(heatshrink_decoder *hsd,
     output_info *oi);
@@ -173,9 +173,8 @@ HSD_poll_res heatshrink_decoder_poll(heatshrink_decoder *hsd,
         default:
             return HSDR_POLL_ERROR_UNKNOWN;
         }
-        
-        /* If the current state cannot advance, check if input or output
-         * buffer are exhausted. */
+
+        /* 若当前状态无法继续推进，检查输入或输出缓冲区是否耗尽。 */
         if (hsd->state == in_state) {
             if (*output_size == out_buf_size) { return HSDR_POLL_MORE; }
             return HSDR_POLL_EMPTY;
@@ -184,7 +183,7 @@ HSD_poll_res heatshrink_decoder_poll(heatshrink_decoder *hsd,
 }
 
 static HSD_state st_tag_bit(heatshrink_decoder *hsd) {
-    uint32_t bits = get_bits(hsd, 1);  // get tag bit
+    uint32_t bits = get_bits(hsd, 1);  // 读取标记位
     if (bits == NO_BITS) {
         return HSDS_TAG_BIT;
     } else if (bits) {
@@ -199,12 +198,11 @@ static HSD_state st_tag_bit(heatshrink_decoder *hsd) {
 
 static HSD_state st_yield_literal(heatshrink_decoder *hsd,
         output_info *oi) {
-    /* Emit a repeated section from the window buffer, and add it (again)
-     * to the window buffer. (Note that the repetition can include
-     * itself.)*/
+    /* 从窗口缓冲区输出一段重复数据，并把它（再次）写回窗口缓冲区。
+     * （注意重复部分可能包含自身。） */
     if (*oi->output_size < oi->buf_size) {
         uint16_t byte = get_bits(hsd, 8);
-        if (byte == NO_BITS) { return HSDS_YIELD_LITERAL; } /* out of input */
+        if (byte == NO_BITS) { return HSDS_YIELD_LITERAL; } /* 输入不足 */
         uint8_t *buf = &hsd->buffers[HEATSHRINK_DECODER_INPUT_BUFFER_SIZE(hsd)];
         uint16_t mask = (1 << HEATSHRINK_DECODER_WINDOW_BITS(hsd))  - 1;
         uint8_t c = byte & 0xFF;
@@ -285,16 +283,16 @@ static HSD_state st_yield_backref(heatshrink_decoder *hsd,
     return HSDS_YIELD_BACKREF;
 }
 
-/* Get the next COUNT bits from the input buffer, saving incremental progress.
- * Returns NO_BITS on end of input, or if more than 15 bits are requested. */
+/* 从输入缓冲区读取接下来 COUNT 个比特，并保存中间进度。
+ * 输入结束或请求超过 15 个比特时返回 NO_BITS。 */
 static uint16_t get_bits(heatshrink_decoder *hsd, uint8_t count) {
     uint16_t accumulator = 0;
     int i = 0;
     if (count > 15) { return NO_BITS; }
     LOG("-- popping %u bit(s)\n", count);
 
-    /* If we aren't able to get COUNT bits, suspend immediately, because we
-     * don't track how many bits of COUNT we've accumulated before suspend. */
+    /* 如果凑不齐 COUNT 个比特，立即挂起，因为我们没有记录
+     * 挂起前已累积了多少个比特。 */
     if (hsd->input_size == 0) {
         if (hsd->bit_index < (1 << (count - 1))) { return NO_BITS; }
     }
@@ -309,7 +307,7 @@ static uint16_t get_bits(heatshrink_decoder *hsd, uint8_t count) {
             hsd->current_byte = hsd->buffers[hsd->input_index++];
             LOG("  -- pulled byte 0x%02x\n", hsd->current_byte);
             if (hsd->input_index == hsd->input_size) {
-                hsd->input_index = 0; /* input is exhausted */
+                hsd->input_index = 0; /* 输入已耗尽 */
                 hsd->input_size = 0;
             }
             hsd->bit_index = 0x80;
@@ -340,18 +338,17 @@ HSD_finish_res heatshrink_decoder_finish(heatshrink_decoder *hsd) {
     case HSDS_TAG_BIT:
         return hsd->input_size == 0 ? HSDR_FINISH_DONE : HSDR_FINISH_MORE;
 
-    /* If we want to finish with no input, but are in these states, it's
-     * because the 0-bit padding to the last byte looks like a backref
-     * marker bit followed by all 0s for index and count bits. */
+    /* 若在没有输入的情况下想结束，却处于这些状态，是因为最后一个
+     * 字节的 0 填充看起来像一个反向引用标记位，后面跟着全 0 的
+     * 索引和计数字段。 */
     case HSDS_BACKREF_INDEX_LSB:
     case HSDS_BACKREF_INDEX_MSB:
     case HSDS_BACKREF_COUNT_LSB:
     case HSDS_BACKREF_COUNT_MSB:
         return hsd->input_size == 0 ? HSDR_FINISH_DONE : HSDR_FINISH_MORE;
 
-    /* If the output stream is padded with 0xFFs (possibly due to being in
-     * flash memory), also explicitly check the input size rather than
-     * uselessly returning MORE but yielding 0 bytes when polling. */
+    /* 若输出流被 0xFF 填充（可能是位于 flash 中导致），也需显式检查
+     * 输入大小，而不是徒劳地返回 MORE、poll 时却输出 0 字节。 */
     case HSDS_YIELD_LITERAL:
         return hsd->input_size == 0 ? HSDR_FINISH_DONE : HSDR_FINISH_MORE;
 

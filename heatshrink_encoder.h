@@ -7,22 +7,22 @@
 #include "heatshrink_config.h"
 
 typedef enum {
-    HSER_SINK_OK,               /* data sunk into input buffer */
-    HSER_SINK_ERROR_NULL=-1,    /* NULL argument */
-    HSER_SINK_ERROR_MISUSE=-2,  /* API misuse */
+    HSER_SINK_OK,               /* 数据已送入输入缓冲区 */
+    HSER_SINK_ERROR_NULL=-1,    /* NULL 参数 */
+    HSER_SINK_ERROR_MISUSE=-2,  /* API 误用 */
 } HSE_sink_res;
 
 typedef enum {
-    HSER_POLL_EMPTY,            /* input exhausted */
-    HSER_POLL_MORE,             /* poll again for more output  */
-    HSER_POLL_ERROR_NULL=-1,    /* NULL argument */
-    HSER_POLL_ERROR_MISUSE=-2,  /* API misuse */
+    HSER_POLL_EMPTY,            /* 输入已耗尽 */
+    HSER_POLL_MORE,             /* 再次 poll 以获取更多输出 */
+    HSER_POLL_ERROR_NULL=-1,    /* NULL 参数 */
+    HSER_POLL_ERROR_MISUSE=-2,  /* API 误用 */
 } HSE_poll_res;
 
 typedef enum {
-    HSER_FINISH_DONE,           /* encoding is complete */
-    HSER_FINISH_MORE,           /* more output remaining; use poll */
-    HSER_FINISH_ERROR_NULL=-1,  /* NULL argument */
+    HSER_FINISH_DONE,           /* 编码完成 */
+    HSER_FINISH_MORE,           /* 仍有输出未取出；调用 poll */
+    HSER_FINISH_ERROR_NULL=-1,  /* NULL 参数 */
 } HSE_finish_res;
 
 #if HEATSHRINK_DYNAMIC_ALLOC
@@ -50,60 +50,58 @@ struct hs_index {
 #endif
 
 typedef struct {
-    uint16_t input_size;        /* bytes in input buffer */
+    uint16_t input_size;        /* 输入缓冲区中的字节数 */
     uint16_t match_scan_index;
     uint16_t match_length;
     uint16_t match_pos;
-    uint16_t outgoing_bits;     /* enqueued outgoing bits */
+    uint16_t outgoing_bits;     /* 已入队的待输出比特 */
     uint8_t outgoing_bits_count;
     uint8_t flags;
-    uint8_t state;              /* current state machine node */
-    uint8_t current_byte;       /* current byte of output */
-    uint8_t bit_index;          /* current bit index */
+    uint8_t state;              /* 当前状态机状态 */
+    uint8_t current_byte;       /* 当前输出字节 */
+    uint8_t bit_index;          /* 当前比特位置 */
 #if HEATSHRINK_DYNAMIC_ALLOC
-    uint8_t window_sz2;         /* 2^n size of window */
-    uint8_t lookahead_sz2;      /* 2^n size of lookahead */
+    uint8_t window_sz2;         /* 窗口大小为 2^n */
+    uint8_t lookahead_sz2;      /* 前向匹配大小为 2^n */
 #if HEATSHRINK_USE_INDEX
     struct hs_index *search_index;
 #endif
-    /* input buffer and / sliding window for expansion */
+    /* 输入缓冲区 / 用于扩展的滑动窗口 */
     uint8_t buffer[];
 #else
     #if HEATSHRINK_USE_INDEX
         struct hs_index search_index;
     #endif
-    /* input buffer and / sliding window for expansion */
+    /* 输入缓冲区 / 用于扩展的滑动窗口 */
     uint8_t buffer[2 << HEATSHRINK_ENCODER_WINDOW_BITS(_)];
 #endif
 } heatshrink_encoder;
 
 #if HEATSHRINK_DYNAMIC_ALLOC
-/* Allocate a new encoder struct and its buffers.
- * Returns NULL on error. */
+/* 分配新的 encoder 结构体及其缓冲区。出错返回 NULL。 */
 heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
     uint8_t lookahead_sz2);
 
-/* Free an encoder. */
+/* 释放 encoder。 */
 void heatshrink_encoder_free(heatshrink_encoder *hse);
 #endif
 
-/* Reset an encoder. */
+/* 重置 encoder。 */
 void heatshrink_encoder_reset(heatshrink_encoder *hse);
 
-/* Sink up to SIZE bytes from IN_BUF into the encoder.
- * INPUT_SIZE is set to the number of bytes actually sunk (in case a
- * buffer was filled.). */
+/* 将 IN_BUF 中最多 SIZE 字节送入 encoder。
+ * *INPUT_SIZE 会设置为实际送入的字节数（缓冲区可能已满）。 */
 HSE_sink_res heatshrink_encoder_sink(heatshrink_encoder *hse,
     uint8_t *in_buf, size_t size, size_t *input_size);
 
-/* Poll for output from the encoder, copying at most OUT_BUF_SIZE bytes into
- * OUT_BUF (setting *OUTPUT_SIZE to the actual amount copied). */
+/* 从 encoder 轮询输出，最多把 OUT_BUF_SIZE 字节拷入 OUT_BUF
+ * （*OUTPUT_SIZE 设为实际拷贝的字节数）。 */
 HSE_poll_res heatshrink_encoder_poll(heatshrink_encoder *hse,
     uint8_t *out_buf, size_t out_buf_size, size_t *output_size);
 
-/* Notify the encoder that the input stream is finished.
- * If the return value is HSER_FINISH_MORE, there is still more output, so
- * call heatshrink_encoder_poll and repeat. */
+/* 通知 encoder 输入流已结束。
+ * 若返回 HSER_FINISH_MORE，说明还有输出未取出，需反复调用
+ * heatshrink_encoder_poll。 */
 HSE_finish_res heatshrink_encoder_finish(heatshrink_encoder *hse);
 
 #endif

@@ -3,3 +3,7 @@ Build/
 *.dSYM
 *.exe
 *.hs
+
+# 测试输入/输出数据文件
+Boot_B.bin
+Boot_B.restored.bin
