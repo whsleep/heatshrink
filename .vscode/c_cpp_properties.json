@@ -1,0 +1,20 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "defines": [
+        // Primary build variant (matches the default in heatshrink_config.h
+        // and the CLI tool). Set to 0 to browse the static-allocation variant.
+        "HEATSHRINK_DYNAMIC_ALLOC=1"
+      ],
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-x64"
+    }
+  ]
+}

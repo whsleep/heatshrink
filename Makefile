@@ -1,122 +1,62 @@
 PROJECT = heatshrink
+BUILD_DIR = Build
+
 OPTIMIZE = -O3
 WARN = -Wall -Wextra -pedantic #-Werror
 WARN += -Wmissing-prototypes
 WARN += -Wstrict-prototypes
 WARN += -Wmissing-declarations
 
-# If libtheft is available, build additional property-based tests.
-# Uncomment these to use it in test_heatshrink_dynamic.
-#CFLAGS += -DHEATSHRINK_HAS_THEFT
-#THEFT_PATH=	/usr/local/
-#THEFT_INC=	-I${THEFT_PATH}/include/
-#LDFLAGS += -L${THEFT_PATH}/lib -ltheft
+CFLAGS += -std=c99 -g ${WARN} ${OPTIMIZE}
 
-CFLAGS += -std=c99 -g ${WARN} ${THEFT_INC} ${OPTIMIZE}
-
-all: heatshrink test_runners libraries
-
-libraries: libheatshrink_static.a libheatshrink_dynamic.a
-
-test_runners: test_heatshrink_static test_heatshrink_dynamic
-test: test_runners
-	./test_heatshrink_static
-	./test_heatshrink_dynamic
-ci: test
-
-clean:
-	rm -f heatshrink test_heatshrink_{dynamic,static} \
-		*.o *.os *.od *.core *.a {dec,enc}_sm.png TAGS
-	rm -rf ${BENCHMARK_OUT}
-
-TAGS:
-	etags *.[ch]
-
-diagrams: dec_sm.png enc_sm.png
-
-dec_sm.png: dec_sm.dot
-	dot -o $@ -Tpng $<
-
-enc_sm.png: enc_sm.dot
-	dot -o $@ -Tpng $<
-
-# Benchmarking
-CORPUS_ARCHIVE=	cantrbry.tar.gz
-CORPUS_URL=	http://corpus.canterbury.ac.nz/resources/${CORPUS_ARCHIVE}
-BENCHMARK_OUT=	benchmark_out
-
-## Uncomment one of these.
-DL=	curl -o ${CORPUS_ARCHIVE}
-#DL=	wget -O ${CORPUS_ARCHIVE}
-
-bench: heatshrink corpus
-	mkdir -p ${BENCHMARK_OUT}
-	cd ${BENCHMARK_OUT} && tar vzxf ../${CORPUS_ARCHIVE}
-	time ./benchmark
-
-corpus: ${CORPUS_ARCHIVE}
-
-${CORPUS_ARCHIVE}:
-	${DL} ${CORPUS_URL}
-
-# Installation
-PREFIX ?=	/usr/local
-INSTALL ?=	install
-RM ?=		rm
-
-install: libraries heatshrink
-	${INSTALL} -c heatshrink ${PREFIX}/bin/
-	${INSTALL} -c libheatshrink_static.a ${PREFIX}/lib/
-	${INSTALL} -c libheatshrink_dynamic.a ${PREFIX}/lib/
-	${INSTALL} -c heatshrink_common.h ${PREFIX}/include/
-	${INSTALL} -c heatshrink_config.h ${PREFIX}/include/
-	${INSTALL} -c heatshrink_encoder.h ${PREFIX}/include/
-	${INSTALL} -c heatshrink_decoder.h ${PREFIX}/include/
-
-uninstall:
-	${RM} -f ${PREFIX}/lib/libheatshrink_static.a
-	${RM} -f ${PREFIX}/lib/libheatshrink_dynamic.a
-	${RM} -f ${PREFIX}/include/heatshrink_common.h
-	${RM} -f ${PREFIX}/include/heatshrink_config.h
-	${RM} -f ${PREFIX}/include/heatshrink_encoder.h
-	${RM} -f ${PREFIX}/include/heatshrink_decoder.h
-
-# Internal targets and rules
-
-OBJS = heatshrink_encoder.o heatshrink_decoder.o
-
-DYNAMIC_OBJS= $(OBJS:.o=.od)
-STATIC_OBJS=  $(OBJS:.o=.os)
-
-DYNAMIC_LDFLAGS= ${LDFLAGS} -L. -lheatshrink_dynamic
-STATIC_LDFLAGS= ${LDFLAGS} -L. -lheatshrink_static
-
-# Libraries should be built separately for versions
-# with and without dynamic allocation.
+# 库会分别按“有/无动态内存分配”两个变体编译：
+# CLI（heatshrink）和 compress 用动态分配；decompress 用静态分配。
 CFLAGS_STATIC = ${CFLAGS} -DHEATSHRINK_DYNAMIC_ALLOC=0
 CFLAGS_DYNAMIC = ${CFLAGS} -DHEATSHRINK_DYNAMIC_ALLOC=1
 
-heatshrink: heatshrink.od libheatshrink_dynamic.a
-	${CC} -o $@ $^ ${CFLAGS_DYNAMIC} -L. -lheatshrink_dynamic
+HEADERS = heatshrink_common.h heatshrink_config.h \
+          heatshrink_encoder.h heatshrink_decoder.h
 
-test_heatshrink_dynamic: test_heatshrink_dynamic.od test_heatshrink_dynamic_theft.od libheatshrink_dynamic.a
-	${CC} -o $@ $< ${CFLAGS_DYNAMIC} test_heatshrink_dynamic_theft.od ${DYNAMIC_LDFLAGS}
+# 所有编译产物统一放在 Build/ 目录下。
+DYNAMIC_OBJS = $(BUILD_DIR)/heatshrink_encoder.od $(BUILD_DIR)/heatshrink_decoder.od
+STATIC_OBJS  = $(BUILD_DIR)/heatshrink_encoder.os $(BUILD_DIR)/heatshrink_decoder.os
 
-test_heatshrink_static: test_heatshrink_static.os libheatshrink_static.a
-	${CC} -o $@ $< ${CFLAGS_STATIC} ${STATIC_LDFLAGS}
+LIB_STATIC  = $(BUILD_DIR)/libheatshrink_static.a
+LIB_DYNAMIC = $(BUILD_DIR)/libheatshrink_dynamic.a
 
-libheatshrink_static.a: ${STATIC_OBJS}
+BIN_HEATSHRINK = $(BUILD_DIR)/heatshrink
+BIN_COMPRESS   = $(BUILD_DIR)/compress
+BIN_DECOMPRESS = $(BUILD_DIR)/decompress
+
+all: $(BIN_HEATSHRINK) libraries $(BIN_COMPRESS) $(BIN_DECOMPRESS)
+
+libraries: $(LIB_STATIC) $(LIB_DYNAMIC)
+
+$(BIN_HEATSHRINK): $(BUILD_DIR)/heatshrink.od $(LIB_DYNAMIC) | $(BUILD_DIR)
+	${CC} -o $@ $^ ${CFLAGS_DYNAMIC} -L$(BUILD_DIR) -lheatshrink_dynamic
+
+$(BIN_COMPRESS): compress.c $(HEADERS) $(LIB_DYNAMIC) | $(BUILD_DIR)
+	${CC} -o $@ $< ${CFLAGS_DYNAMIC} -L$(BUILD_DIR) -lheatshrink_dynamic
+
+$(BIN_DECOMPRESS): decompress.c $(HEADERS) $(LIB_STATIC) | $(BUILD_DIR)
+	${CC} -o $@ $< ${CFLAGS_STATIC} -L$(BUILD_DIR) -lheatshrink_static
+
+$(LIB_STATIC): $(STATIC_OBJS) | $(BUILD_DIR)
 	ar -rcs $@ $^
 
-libheatshrink_dynamic.a: ${DYNAMIC_OBJS}
+$(LIB_DYNAMIC): $(DYNAMIC_OBJS) | $(BUILD_DIR)
 	ar -rcs $@ $^
 
-%.od: %.c
+$(BUILD_DIR)/%.od: %.c $(HEADERS) | $(BUILD_DIR)
 	${CC} -c -o $@ $< ${CFLAGS_DYNAMIC}
 
-%.os: %.c
+$(BUILD_DIR)/%.os: %.c $(HEADERS) | $(BUILD_DIR)
 	${CC} -c -o $@ $< ${CFLAGS_STATIC}
 
-*.os: Makefile *.h
-*.od: Makefile *.h
+$(BUILD_DIR):
+	mkdir -p $@
 
+clean:
+	rm -rf $(BUILD_DIR)
+
+.PHONY: all libraries clean

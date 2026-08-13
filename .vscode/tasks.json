@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "make: build",
+      "command": "make",
+      "args": ["all"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "Build the heatshrink CLI and both libraries"
+    },
+    {
+      "type": "shell",
+      "label": "make: clean",
+      "command": "make",
+      "args": ["clean"],
+      "problemMatcher": [],
+      "detail": "Remove build artifacts"
+    }
+  ]
+}
