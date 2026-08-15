@@ -27,8 +27,9 @@ LIB_DYNAMIC = $(BUILD_DIR)/libheatshrink_dynamic.a
 BIN_HEATSHRINK = $(BUILD_DIR)/heatshrink
 BIN_COMPRESS   = $(BUILD_DIR)/compress
 BIN_DECOMPRESS = $(BUILD_DIR)/decompress
+BIN_EXAMPLE    = $(BUILD_DIR)/example_compress
 
-all: $(BIN_HEATSHRINK) libraries $(BIN_COMPRESS) $(BIN_DECOMPRESS)
+all: $(BIN_HEATSHRINK) libraries $(BIN_COMPRESS) $(BIN_DECOMPRESS) $(BIN_EXAMPLE)
 
 libraries: $(LIB_STATIC) $(LIB_DYNAMIC)
 
@@ -40,6 +41,9 @@ $(BIN_COMPRESS): compress.c $(HEADERS) $(LIB_DYNAMIC) | $(BUILD_DIR)
 
 $(BIN_DECOMPRESS): decompress.c $(HEADERS) $(LIB_STATIC) | $(BUILD_DIR)
 	${CC} -o $@ $< ${CFLAGS_STATIC} -L$(BUILD_DIR) -lheatshrink_static
+
+$(BIN_EXAMPLE): example_compress.c $(HEADERS) $(LIB_DYNAMIC) | $(BUILD_DIR)
+	${CC} -o $@ $< ${CFLAGS_DYNAMIC} -L$(BUILD_DIR) -lheatshrink_dynamic
 
 $(LIB_STATIC): $(STATIC_OBJS) | $(BUILD_DIR)
 	ar -rcs $@ $^
