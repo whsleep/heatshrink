@@ -7,9 +7,8 @@
         "${workspaceFolder}/**"
       ],
       "defines": [
-        // Primary build variant (matches the default in heatshrink_config.h
-        // and the CLI tool). Set to 0 to browse the static-allocation variant.
-        "HEATSHRINK_DYNAMIC_ALLOC=1"
+        // Static-allocation variant (matches heatshrink_config.h).
+        "HEATSHRINK_DYNAMIC_ALLOC=0"
       ],
       "compilerPath": "/usr/bin/gcc",
       "cStandard": "c99",

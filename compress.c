@@ -1,32 +1,33 @@
 /*
- * compress.c —— heatshrink 主机端压缩程序。
+ * compress.c —— heatshrink 主机端压缩程序（静态内存分配）。
  *
  * 读取一个文件（默认 Boot_B.bin），用 heatshrink 压缩后写入输出文件
- * （默认 Boot_B.bin.hs）。压缩端使用动态内存分配。
+ * （默认 Boot_B.bin.hs）。
  *
- * 下面的 window / lookahead 参数必须与解压端的编译期配置一致
- * （heatshrink_config.h 里的 HEATSHRINK_STATIC_WINDOW_BITS /
- *  HEATSHRINK_STATIC_LOOKAHEAD_BITS）。
+ * 使用静态分配的 encoder（不依赖 malloc，可移植到嵌入式）。窗口 /
+ * lookahead 参数由编译期配置 heatshrink_config.h 里的
+ * HEATSHRINK_STATIC_WINDOW_BITS / HEATSHRINK_STATIC_LOOKAHEAD_BITS 决定，
+ * 必须与解压端一致。
  *
  * 编译方式（或直接 `make compress`）：
- *   gcc -std=c99 -O2 -Wall compress.c -DHEATSHRINK_DYNAMIC_ALLOC=1 \
- *       -LBuild -lheatshrink_dynamic -o compress
+ *   gcc -std=c99 -O2 -Wall compress.c -DHEATSHRINK_DYNAMIC_ALLOC=0 \
+ *       -LBuild -lheatshrink_static -o compress
  */
 #include <stdio.h>
 #include <stdint.h>
 
 #include "heatshrink_encoder.h"
 
-#define WINDOW_SZ2     8   /* 2^8 = 256 字节窗口   */
-#define LOOKAHEAD_SZ2  4   /* 2^4 = 16 字节前向匹配 */
+/* 静态分配的 encoder（放在 BSS 段，不需要堆内存）。 */
+static heatshrink_encoder hse;
 
 /* 轮询并写出编码器当前所有待输出的数据。成功返回 0。 */
-static int poll_and_write(heatshrink_encoder *hse, FILE *out) {
+static int poll_and_write(FILE *out) {
     uint8_t buf[4096];
     HSE_poll_res pres;
     do {
         size_t count = 0;
-        pres = heatshrink_encoder_poll(hse, buf, sizeof(buf), &count);
+        pres = heatshrink_encoder_poll(&hse, buf, sizeof(buf), &count);
         if (pres < 0) { fprintf(stderr, "encode poll failed\n"); return -1; }
         if (count > 0 && fwrite(buf, 1, count, out) != count) {
             fprintf(stderr, "write failed\n");
@@ -38,8 +39,7 @@ static int poll_and_write(heatshrink_encoder *hse, FILE *out) {
 
 /* 把输入流 `in` 压缩到输出流 `out`。成功返回 0，出错返回非 0。 */
 static int compress_stream(FILE *in, FILE *out) {
-    heatshrink_encoder *hse = heatshrink_encoder_alloc(WINDOW_SZ2, LOOKAHEAD_SZ2);
-    if (hse == NULL) { fprintf(stderr, "encoder alloc failed\n"); return -1; }
+    heatshrink_encoder_reset(&hse);
 
     uint8_t in_buf[1024];
     size_t n;
@@ -47,40 +47,34 @@ static int compress_stream(FILE *in, FILE *out) {
         size_t sunk = 0;
         while (sunk < n) {
             size_t count = 0;
-            if (heatshrink_encoder_sink(hse, in_buf + sunk, n - sunk, &count) < 0) {
+            if (heatshrink_encoder_sink(&hse, in_buf + sunk, n - sunk, &count) < 0) {
                 fprintf(stderr, "encode sink failed\n");
-                heatshrink_encoder_free(hse);
                 return -1;
             }
             sunk += count;
-            if (poll_and_write(hse, out) < 0) {
-                heatshrink_encoder_free(hse);
+            if (poll_and_write(out) < 0) {
                 return -1;
             }
         }
     }
     if (ferror(in)) {
         fprintf(stderr, "read failed\n");
-        heatshrink_encoder_free(hse);
         return -1;
     }
 
     /* 冲刷流的最后几个 bit。 */
     HSE_finish_res fres;
     do {
-        fres = heatshrink_encoder_finish(hse);
+        fres = heatshrink_encoder_finish(&hse);
         if (fres < 0) {
             fprintf(stderr, "encode finish failed\n");
-            heatshrink_encoder_free(hse);
             return -1;
         }
-        if (poll_and_write(hse, out) < 0) {
-            heatshrink_encoder_free(hse);
+        if (poll_and_write(out) < 0) {
             return -1;
         }
     } while (fres == HSER_FINISH_MORE);
 
-    heatshrink_encoder_free(hse);
     return 0;
 }
 

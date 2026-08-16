@@ -79,7 +79,7 @@ heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
    * (1 << window_sz2) 字节的上一份输入（用于扫描查找
    * 有用的反向引用）。 */
   size_t buf_sz = (2 << window_sz2);
-
+  // 分配编码器结构体和缓冲区内存
   heatshrink_encoder *hse = HEATSHRINK_MALLOC(sizeof(*hse) + buf_sz);
   if (hse == NULL) {
     return NULL;
@@ -89,13 +89,14 @@ heatshrink_encoder *heatshrink_encoder_alloc(uint8_t window_sz2,
   heatshrink_encoder_reset(hse);
 
 #if HEATSHRINK_USE_INDEX
-  size_t index_sz = buf_sz * sizeof(uint16_t);
-  hse->search_index = HEATSHRINK_MALLOC(index_sz + sizeof(struct hs_index));
+  size_t index_sz = buf_sz * sizeof(uint16_t); // 索引大小
+  hse->search_index = HEATSHRINK_MALLOC(
+      index_sz + sizeof(struct hs_index)); // 分配结构体和数组大小
   if (hse->search_index == NULL) {
     HEATSHRINK_FREE(hse, sizeof(*hse) + buf_sz);
     return NULL;
   }
-  hse->search_index->size = index_sz;
+  hse->search_index->size = index_sz; // 索引数组大小
 #endif
 
   LOG("-- allocated encoder with buffer size of %zu (%u byte input size)\n",
@@ -157,14 +158,15 @@ HSE_sink_res heatshrink_encoder_sink(heatshrink_encoder *hse, uint8_t *in_buf,
     return HSER_SINK_ERROR_MISUSE;
   }
 
-  uint16_t write_offset = get_input_offset(hse) + hse->input_size; //获取窗口
-  uint16_t ibs = get_input_buffer_size(hse);
-  uint16_t rem = ibs - hse->input_size;
-  uint16_t cp_sz = rem < size ? rem : size;
+  uint16_t write_offset =
+      get_input_offset(hse) + hse->input_size; //获取窗口偏移
+  uint16_t ibs = get_input_buffer_size(hse);   // 获取输入缓冲区大小
+  uint16_t rem = ibs - hse->input_size;        // 剩余空间
+  uint16_t cp_sz = rem < size ? rem : size;    // 复制大小
 
-  memcpy(&hse->buffer[write_offset], in_buf, cp_sz);
-  *input_size = cp_sz;
-  hse->input_size += cp_sz;
+  memcpy(&hse->buffer[write_offset], in_buf, cp_sz); // 复制数据到缓冲区
+  *input_size = cp_sz;                               // 更新已使用大小
+  hse->input_size += cp_sz; // 更新输入缓冲区已使用大小
 
   LOG("-- sunk %u bytes (of %zu) into encoder at %d, input buffer now has %u\n",
       cp_sz, size, write_offset, hse->input_size);

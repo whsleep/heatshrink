@@ -1,14 +1,18 @@
 /*
- * example_compress.c —— heatshrink 压缩过程学习示例
+ * example_compress.c —— heatshrink 压缩过程学习示例（静态内存分配）。
  *
  * 用一个硬编码的字节数组（0x00~0x0F 循环重复），演示 heatshrink 的完整
  * 压缩流程，并打印压缩结果（十六进制 + 大小对比），最后解压回去验证无损。
  *
  * 核心流程（编码器）只有三步：
- *   1. heatshrink_encoder_alloc()   分配编码器，设定 window / lookahead
- *   2. heatshrink_encoder_sink()    把输入数据“送”进编码器内部缓冲区
- *   3. heatshrink_encoder_poll()    从编码器“取”出压缩后的输出
- *   4. heatshrink_encoder_finish()  告诉编码器输入结束，冲刷剩余比特
+ *   1. heatshrink_encoder_reset()  重置编码器（静态分配，无需 alloc）
+ *   2. heatshrink_encoder_sink()   把输入数据“送”进编码器内部缓冲区
+ *   3. heatshrink_encoder_poll()   从编码器“取”出压缩后的输出
+ *   4. heatshrink_encoder_finish() 告诉编码器输入结束，冲刷剩余比特
+ *
+ * 这里使用静态分配的 encoder / decoder（static 全局变量，放在 BSS 段，
+ * 不依赖 malloc），窗口 / lookahead 大小由编译期配置 heatshrink_config.h
+ * 里的 HEATSHRINK_STATIC_WINDOW_BITS / HEATSHRINK_STATIC_LOOKAHEAD_BITS 决定。
  *
  * 原理简述（LZSS）：
  *   压缩时，编码器在已处理的历史数据（“窗口”）里查找与当前数据重复的
@@ -26,8 +30,8 @@
  * HEATSHRINK_DEBUGGING_LOGS 改成 1，再重新编译运行。
  *
  * 编译（或 `make example_compress`）：
- *   gcc -std=c99 -O2 -Wall example_compress.c -DHEATSHRINK_DYNAMIC_ALLOC=1 \
- *       -LBuild -lheatshrink_dynamic -o example_compress
+ *   gcc -std=c99 -O2 -Wall example_compress.c -DHEATSHRINK_DYNAMIC_ALLOC=0 \
+ *       -LBuild -lheatshrink_static -o example_compress
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -37,12 +41,20 @@
 #include "heatshrink_decoder.h"
 #include "heatshrink_encoder.h"
 
-/* 压缩参数：必须与解压端一致。 */
+/*
+ * 以下两个参数仅作理解参考，与 heatshrink_config.h 里的静态参数一致；
+ * 静态分配时实际生效的是 config.h 里的
+ * HEATSHRINK_STATIC_WINDOW_BITS / HEATSHRINK_STATIC_LOOKAHEAD_BITS。
+ */
 #define WINDOW_SZ2 8    /* 窗口大小 = 2^8 = 256 字节 */
 #define LOOKAHEAD_SZ2 4 /* 最长匹配 = 2^4 = 16 字节 */
 
 /* 输出缓冲区容量：64 字节输入压缩后 + 解压回 64 字节都远远用不满。 */
 #define OUT_CAPACITY 256
+
+/* 静态分配的 encoder / decoder（放在 BSS 段，不依赖堆内存）。 */
+static heatshrink_encoder hse;
+static heatshrink_decoder hsd;
 
 /*
  * 给定的输入数据：0x00~0x0F 的字节序列重复 4 次，共 64 字节。
@@ -89,12 +101,8 @@ static void hex_dump(const char *title, const uint8_t *data, size_t size) {
  */
 static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
                     size_t out_capacity, size_t *out_size) {
-  /* 1. 分配编码器，传入 window 和 lookahead 两个参数。 */
-  heatshrink_encoder *hse = heatshrink_encoder_alloc(WINDOW_SZ2, LOOKAHEAD_SZ2);
-  if (hse == NULL) {
-    fprintf(stderr, "encoder alloc failed\n");
-    return -1;
-  }
+  /* 1. 重置编码器（静态模式下参数由 heatshrink_config.h 决定）。 */
+  heatshrink_encoder_reset(&hse);
 
   size_t in_pos = 0;  /* 已经送入的输入字节数 */
   size_t out_pos = 0; /* 已经写出的输出字节数 */
@@ -105,10 +113,9 @@ static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
      * *sunk 会被设成真正吃下的字节数（缓冲区可能一次装不下）。 */
     size_t sunk = 0;
     /* sink 形参非 const，但只读不写；这里的强转让调用方能传入 const 数据。 */
-    if (heatshrink_encoder_sink(hse, (uint8_t *)(in + in_pos), in_size - in_pos,
-                                &sunk) < 0) {
+    if (heatshrink_encoder_sink(&hse, (uint8_t *)(in + in_pos),
+                                in_size - in_pos, &sunk) < 0) {
       fprintf(stderr, "sink failed\n");
-      heatshrink_encoder_free(hse);
       return -1;
     }
     in_pos += sunk;
@@ -120,14 +127,12 @@ static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
     do {
       size_t polled = 0;
       if (out_pos >= out_capacity) { /* 输出缓冲区溢出 */
-        heatshrink_encoder_free(hse);
         return -1;
       }
-      pres = heatshrink_encoder_poll(hse, out + out_pos, out_capacity - out_pos,
-                                     &polled);
+      pres = heatshrink_encoder_poll(&hse, out + out_pos,
+                                     out_capacity - out_pos, &polled);
       if (pres < 0) {
         fprintf(stderr, "poll failed\n");
-        heatshrink_encoder_free(hse);
         return -1;
       }
       out_pos += polled;
@@ -137,10 +142,9 @@ static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
   /* 3. finish：标记输入结束，冲刷最后不足一个字节的残余比特。 */
   HSE_finish_res fres;
   do {
-    fres = heatshrink_encoder_finish(hse);
+    fres = heatshrink_encoder_finish(&hse);
     if (fres < 0) {
       fprintf(stderr, "finish failed\n");
-      heatshrink_encoder_free(hse);
       return -1;
     }
 
@@ -148,21 +152,18 @@ static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
     do {
       size_t polled = 0;
       if (out_pos >= out_capacity) {
-        heatshrink_encoder_free(hse);
         return -1;
       }
-      pres = heatshrink_encoder_poll(hse, out + out_pos, out_capacity - out_pos,
-                                     &polled);
+      pres = heatshrink_encoder_poll(&hse, out + out_pos,
+                                     out_capacity - out_pos, &polled);
       if (pres < 0) {
         fprintf(stderr, "poll failed\n");
-        heatshrink_encoder_free(hse);
         return -1;
       }
       out_pos += polled;
     } while (pres == HSER_POLL_MORE);
   } while (fres == HSER_FINISH_MORE);
 
-  heatshrink_encoder_free(hse);
   *out_size = out_pos;
   return 0;
 }
@@ -173,17 +174,12 @@ static int compress(const uint8_t *in, size_t in_size, uint8_t *out,
  *
  * 解码器流程与编码器对称：sink（送入压缩数据）-> poll（取出解压数据）
  * -> finish（结束并冲刷）。注意解码器的 window / lookahead 必须与
- * 压缩时一致，否则结果错误。
+ * 压缩时一致（这里都由 config.h 决定，天然一致）。
  */
 static int decompress_and_verify(const uint8_t *comp, size_t comp_size,
                                  const uint8_t *orig, size_t orig_size) {
-  /* 分配解码器：第 1 个参数是解码器内部输入缓冲区大小（压缩数据用）。 */
-  heatshrink_decoder *hsd =
-      heatshrink_decoder_alloc(256, WINDOW_SZ2, LOOKAHEAD_SZ2);
-  if (hsd == NULL) {
-    fprintf(stderr, "decoder alloc failed\n");
-    return -1;
-  }
+  /* 重置解码器（静态模式下参数由 heatshrink_config.h 决定）。 */
+  heatshrink_decoder_reset(&hsd);
 
   uint8_t out[OUT_CAPACITY];
   size_t in_pos = 0;
@@ -192,9 +188,8 @@ static int decompress_and_verify(const uint8_t *comp, size_t comp_size,
   /* sink + poll，送入全部压缩数据并取出解压结果。 */
   while (in_pos < comp_size) {
     size_t sunk = 0;
-    if (heatshrink_decoder_sink(hsd, (uint8_t *)(comp + in_pos),
+    if (heatshrink_decoder_sink(&hsd, (uint8_t *)(comp + in_pos),
                                 comp_size - in_pos, &sunk) < 0) {
-      heatshrink_decoder_free(hsd);
       return -1;
     }
     in_pos += sunk;
@@ -203,13 +198,11 @@ static int decompress_and_verify(const uint8_t *comp, size_t comp_size,
     do {
       size_t polled = 0;
       if (out_pos >= OUT_CAPACITY) {
-        heatshrink_decoder_free(hsd);
         return -1;
       }
-      pres = heatshrink_decoder_poll(hsd, out + out_pos, OUT_CAPACITY - out_pos,
-                                     &polled);
+      pres = heatshrink_decoder_poll(&hsd, out + out_pos,
+                                     OUT_CAPACITY - out_pos, &polled);
       if (pres < 0) {
-        heatshrink_decoder_free(hsd);
         return -1;
       }
       out_pos += polled;
@@ -219,9 +212,8 @@ static int decompress_and_verify(const uint8_t *comp, size_t comp_size,
   /* finish + poll，冲刷剩余输出。 */
   HSD_finish_res fres;
   do {
-    fres = heatshrink_decoder_finish(hsd);
+    fres = heatshrink_decoder_finish(&hsd);
     if (fres < 0) {
-      heatshrink_decoder_free(hsd);
       return -1;
     }
 
@@ -229,20 +221,16 @@ static int decompress_and_verify(const uint8_t *comp, size_t comp_size,
     do {
       size_t polled = 0;
       if (out_pos >= OUT_CAPACITY) {
-        heatshrink_decoder_free(hsd);
         return -1;
       }
-      pres = heatshrink_decoder_poll(hsd, out + out_pos, OUT_CAPACITY - out_pos,
-                                     &polled);
+      pres = heatshrink_decoder_poll(&hsd, out + out_pos,
+                                     OUT_CAPACITY - out_pos, &polled);
       if (pres < 0) {
-        heatshrink_decoder_free(hsd);
         return -1;
       }
       out_pos += polled;
     } while (pres == HSDR_POLL_MORE);
   } while (fres == HSDR_FINISH_MORE);
-
-  heatshrink_decoder_free(hsd);
 
   /* 校验：解压出的字节数和内容都要和原始输入一致。 */
   if (out_pos != orig_size) {

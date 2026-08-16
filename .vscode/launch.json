@@ -22,11 +22,11 @@
       ]
     },
     {
-      "name": "Debug heatshrink (encode)",
+      "name": "Debug demo",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/Build/heatshrink",
-      "args": ["-e", "-v", "-w", "8", "-l", "4"],
+      "program": "${workspaceFolder}/Build/demo",
+      "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
@@ -42,11 +42,31 @@
       ]
     },
     {
-      "name": "Debug heatshrink (decode)",
+      "name": "Debug compress",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/Build/heatshrink",
-      "args": ["-d", "-v"],
+      "program": "${workspaceFolder}/Build/compress",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "make: build",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Debug decompress",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/Build/decompress",
+      "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

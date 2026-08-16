@@ -11,7 +11,7 @@
         "isDefault": true
       },
       "problemMatcher": ["$gcc"],
-      "detail": "Build the heatshrink CLI and both libraries"
+      "detail": "Build the static library and tools"
     },
     {
       "type": "shell",
